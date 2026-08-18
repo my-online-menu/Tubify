@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tubeify</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+<script src="{{ url_for('static', filename='socket.io.min.js') }}"></script>
+</head>
+<body>
+
+<header class="app-header">
+  <div class="brand">Tubeify<span class="brand-dot">.</span></div>
+</header>
+<!-- SEARCH -->
+<div id="searchSection" class="section active">
+  
+  <!-- Search Box Wrapper -->
+  <div id="searchBoxWrapper">
+    <input id="queryInput" type="text" placeholder="Search YouTube or paste URL">
+    <button id="searchBtn">Search</button>
+
+    <!-- Searching Overlay -->
+    <div id="searchOverlay" class="loading-overlay">
+      <div class="spinner"></div>
+      <p>Searching...</p>
+    </div>
+  </div>
+
+  <!-- Search Results Wrapper -->
+  <div id="searchResultsWrapper" style="position:relative;">
+    <div id="searchResults"></div>
+
+    <!-- Downloading Overlay (contained) -->
+    <div id="loadingOverlay" class="loading-overlay">
+      <div class="spinner"></div>
+      <p>Downloading...</p>
+      <div class="progress-bar"></div>
+      <div class="progress-text"></div>
+    </div>
+  </div>
+</div>
+
+<div id="previewModal" style="display:none; position:fixed; inset:0; background:rgba(0, 0, 0, 0.459); z-index:9999; flex-direction:column; align-items:center; justify-content:center; padding:20px;">
+    
+    <button onclick="closePreview()" style="align-self:flex-end; background:white; border:none; padding:10px 15px; border-radius:50%; font-weight:bold; margin-bottom:10px;">X</button>
+
+    <div id="iframeContainer" style="width:100%; max-width:800px; aspect-ratio:16/9; background:black; border-radius:12px; overflow:hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+        </div>
+
+    <button id="previewDownloadBtn" class="save-btn" style="display: none;">
+         
+    </button>
+</div>
+
+<!-- VIDEO -->
+<div id="videoSection" class="section">
+  <div class="library-header">
+    <h3 id="libraryTitle">Library</h3>
+    <div class="library-actions">
+      <button class="lib-btn" onclick="openExport()">⬆ Export</button>
+      <button class="lib-btn" onclick="openImport()">⬇ Import</button>
+    </div>
+  </div>
+  <div class="lib-search-wrap">
+    <input type="text" id="librarySearch" placeholder="Search saved songs…" onkeyup="filterLibrary()">
+  </div>
+  <div id="videoList"></div>
+</div>
+
+<!-- EXPORT MODAL -->
+<div id="exportModal" class="tb-modal">
+  <div class="tb-modal-box">
+    <div class="tb-modal-head">
+      <strong>Export Library</strong>
+      <button class="tb-modal-close" onclick="closeModal('exportModal')">✕</button>
+    </div>
+    <p id="exportInfo" class="tb-modal-sub">Loading…</p>
+    <textarea id="exportText" class="tb-textarea" readonly placeholder="Your library will appear here…"></textarea>
+    <div class="tb-modal-btns">
+      <button class="lib-btn" onclick="copyExport()">Copy JSON</button>
+      <button class="lib-btn" id="shareExportBtn" onclick="shareExport()">Share file</button>
+    </div>
+  </div>
+</div>
+
+<!-- IMPORT MODAL -->
+<div id="importModal" class="tb-modal">
+  <div class="tb-modal-box">
+    <div class="tb-modal-head">
+      <strong>Import Library</strong>
+      <button class="tb-modal-close" onclick="closeModal('importModal')">✕</button>
+    </div>
+    <p class="tb-modal-sub">Choose an exported <code>.json</code> file, or paste its contents below. All songs will be re-downloaded automatically.</p>
+    <input type="file" id="importFile" accept=".json,application/json" onchange="loadImportFile(event)">
+    <textarea id="importText" class="tb-textarea" placeholder='Paste exported JSON here…'></textarea>
+    <div id="importProgress" class="tb-import-progress" style="display:none;">
+      <div class="tb-progress-track"><div id="importProgressBar" class="tb-progress-fill"></div></div>
+      <div id="importProgressText" class="tb-modal-sub"></div>
+    </div>
+    <div class="tb-modal-btns">
+      <button class="lib-btn" id="startImportBtn" onclick="startImport()">Start Import</button>
+    </div>
+  </div>
+</div>
+
+<!-- PLAYLISTS -->
+<div id="playlistSection" class="section">
+  <!-- Overview: all playlists -->
+  <div id="playlistOverview">
+    <div class="library-header">
+      <h3>Playlists</h3>
+      <div class="library-actions">
+        <button class="lib-btn" onclick="createPlaylistPrompt()">+ New</button>
+      </div>
+    </div>
+    <div id="playlistList"></div>
+  </div>
+
+  <!-- Detail: songs inside one playlist -->
+  <div id="playlistDetail" style="display:none;">
+    <div class="library-header">
+      <button class="lib-btn" onclick="closePlaylistDetail()">← Back</button>
+      <div class="library-actions">
+        <button class="lib-btn" onclick="renameCurrentPlaylist()">Rename</button>
+        <button class="lib-btn danger" onclick="deleteCurrentPlaylist()">Delete</button>
+      </div>
+    </div>
+    <h3 id="playlistDetailName" style="padding:0 10px;"></h3>
+    <div id="playlistDetailSongs"></div>
+  </div>
+</div>
+
+<!-- ADD TO PLAYLIST MODAL -->
+<div id="addToPlaylistModal" class="tb-modal">
+  <div class="tb-modal-box">
+    <div class="tb-modal-head">
+      <strong>Add to playlist</strong>
+      <button class="tb-modal-close" onclick="closeModal('addToPlaylistModal')">✕</button>
+    </div>
+    <p class="tb-modal-sub" id="addToPlaylistSong"></p>
+    <div id="addToPlaylistOptions" class="tb-playlist-options"></div>
+    <div class="tb-modal-btns">
+      <input id="newPlaylistInline" class="tb-inline-input" placeholder="New playlist name">
+      <button class="lib-btn" onclick="createPlaylistInline()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- GENERIC INPUT MODAL (playlist name etc.) -->
+<div id="inputModal" class="tb-modal">
+  <div class="tb-modal-box">
+    <div class="tb-modal-head">
+      <strong id="inputModalTitle">Enter a name</strong>
+      <button class="tb-modal-close" onclick="closeModal('inputModal')">✕</button>
+    </div>
+    <input id="inputModalField" class="tb-inline-input" type="text" autocomplete="off">
+    <div class="tb-modal-btns">
+      <button class="lib-btn ghost" onclick="closeModal('inputModal')">Cancel</button>
+      <button class="lib-btn primary" id="inputModalOk">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- GENERIC CONFIRM MODAL -->
+<div id="confirmModal" class="tb-modal">
+  <div class="tb-modal-box">
+    <div class="tb-modal-head">
+      <strong id="confirmModalTitle">Are you sure?</strong>
+      <button class="tb-modal-close" onclick="closeModal('confirmModal')">✕</button>
+    </div>
+    <p class="tb-modal-sub" id="confirmModalMsg"></p>
+    <div class="tb-modal-btns">
+      <button class="lib-btn ghost" onclick="closeModal('confirmModal')">Cancel</button>
+      <button class="lib-btn danger" id="confirmModalOk">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- MINI PLAYER -->
+<div id="miniPlayer">
+  <img id="miniCover" src="/static/video-placeholder.png"
+       onerror="this.src='/static/video-placeholder.png';">
+  <div class="info" id="miniInfo">No file playing</div>
+  <button class="prevBtn" onclick="playPrevTrack()">◄◄</button>
+  <button class="playPauseBtn" onclick="toggleMiniPlay()">▶</button>
+  <button class="nextBtn" onclick="playNextTrack()">►►</button>
+  <button class="closeMiniBtn" onclick="closeMiniPlayer()">❌</button>
+</div>
+ 
+
+
+<!-- FULL SCREEN AUDIO PLAYER -->
+<div id="fullAudioPlayer">
+    <div class="full-player-container">
+        <button class="close-top" onclick="closeFullAudioPlayer()">❌</button>
+
+        <img id="fullCover" src="/static/video-placeholder.png"
+     onerror="this.src='/static/video-placeholder.png';" alt="Cover">
+        <div class="full-info" id="fullInfo">No file playing</div>
+
+        <div class="slider-container">
+            <input type="range" id="audioTimeline" min="0" max="1" value="0" step="0.1">
+            <div class="time-display" id="fullTime">『⩇⩇:⩇⩇』</div>
+        </div>
+  
+        <div class="controls">
+            <button class="btn" onclick="playPrevTrack()">◄◄</button>
+            <button class="btn playPauseBtn" id="fullPlayPauseBtn" onclick="toggleFullPlay()">▶</button>
+            <button class="btn" onclick="playNextTrack()">►►</button>
+        </div>
+    </div>
+</div>
+
+<!-- LOADING OVERLAYS -->
+
+<div id="removeOverlay" class="loading-overlay">
+  <div class="spinner"></div>
+  <p>Removing...</p>
+</div>
+
+<!-- BOTTOM TABS -->
+<nav class="bottom-tabs">
+  <button class="tab active" onclick="switchTab('searchSection',event)">
+    <svg class="tab-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <span>Search</span>
+  </button>
+  <button class="tab" onclick="switchTab('videoSection',event)">
+    <svg class="tab-ic" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+    <span>Library</span>
+  </button>
+  <button class="tab" onclick="switchTab('playlistSection',event)">
+    <svg class="tab-ic" viewBox="0 0 24 24"><line x1="3" y1="6" x2="15" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="11" y2="18"/><path d="M16 11l5 3.5-5 3.5z"/></svg>
+    <span>Playlists</span>
+  </button>
+</nav>
+
+<script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

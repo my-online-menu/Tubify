@@ -1,0 +1,26 @@
+# ==== Build products / generated ====
+/build
+app/build
+.gradle
+.cxx
+.externalNativeBuild
+/captures
+
+# ==== Local machine config (never commit) ====
+/local.properties
+*.keystore
+*.jks
+
+# ==== Android Studio / IDE ====
+*.iml
+.idea/
+.DS_Store
+
+# ==== Python ====
+__pycache__/
+*.pyc
+*.pyo
+
+# ==== Artifacts ====
+*.apk
+*.aab
