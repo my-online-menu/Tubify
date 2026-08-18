@@ -410,6 +410,10 @@ def _download_url(url, progress_cb=None):
         "progress_hooks": [progress_hook],
         "allow_unplayable_formats": False,
         "merge_output_format": None,
+        # Force the Android player client. Without a JS runtime (which Android
+        # has none of), the default clients return URLs that fail with HTTP 403
+        # on download. The android client returns progressive URLs that work.
+        "extractor_args": {"youtube": {"player_client": ["android"]}},
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
