@@ -1,61 +1,57 @@
-# Tubeify
+<div align="center">
 
-An Android music app that searches YouTube, downloads tracks, and plays them with
-a background player (lock-screen / notification controls, playlists, library
-export/import). Built with **BeeWare/Briefcase + Chaquopy** — a Python
-(Flask + Socket.IO) backend running inside an Android WebView, with native Java
-for playback.
+<img src="docs/icon.png" width="96" height="96" alt="Tubify">
 
-## Project layout
+# Tubify
 
-```
-app/src/main/
-  python/ytmp3/            # Python app
-    main.py                #   Flask + Socket.IO backend (search / download / library / playlists / export-import)
-    frontend/
-      templates/index.html #   UI markup
-      static/script.js     #   all UI + player logic
-      static/styles.css    #   theme
-  java/org/beeware/android/
-    MainActivity.java      # WebView host + JS bridge + file chooser + share
-    MusicService.java      # foreground media service (MediaSession, notification, seek)
-  res/                     # icons, strings, styles
-  AndroidManifest.xml
-app/build.gradle           # Chaquopy config (Python version, pip requirements)
-requirements.txt           # Python deps (flask, flask-socketio, yt-dlp, requests, ...)
-```
+**Search, download and play music from YouTube — right on your phone.**
+Free, offline, no ads.
 
-Songs and their `.thumb` / `.url` sidecars plus `tubeify_playlists.json` are stored
-in app-private internal storage (`~/ytmp3_downloads`), so they survive in-place
-app updates.
+### [⬇ Download the app](https://my-online-menu.github.io/Tubify/) &nbsp;·&nbsp; [Latest release](https://github.com/my-online-menu/Tubify/releases/latest)
 
-## Building
+</div>
 
-Requires: JDK 17, the Android SDK (platform 35, build-tools 35), and a **real
-Python 3.12** on `PATH` for Chaquopy's build step.
+---
+
+## Features
+
+- 🔍 **Search & save** — find any track or paste a link and save it in a tap
+- 🎵 **Offline library** — your songs live on your device and play without a connection
+- 📃 **Playlists** — group songs and see which playlists each track belongs to
+- ▶️ **Background player** — lock-screen & notification controls, keeps playing in the background
+- ↔️ **Export & import** — move your whole library to a new phone
+- ✨ **Clean, modern dark UI**
+
+## Install
+
+Head to the **[download page](https://my-online-menu.github.io/Tubify/)**, get the APK, open it on
+your Android phone, and allow the install when prompted.
+
+## Build from source
+
+A [BeeWare](https://beeware.org/) / [Chaquopy](https://chaquo.com/chaquopy/) app — a Python
+(Flask + Socket.IO) backend running in an Android WebView, with native Java for playback.
+
+Requirements: **JDK 17**, the **Android SDK** (platform 35, build-tools 35), and **Python 3.12**.
 
 ```bash
-# point Gradle at your SDK
 echo "sdk.dir=/path/to/Android/Sdk" > local.properties
-
-# build a debug APK
 ./gradlew assembleDebug
 # -> app/build/outputs/apk/debug/app-debug.apk
 ```
 
-> Note: Chaquopy needs to find Python 3.12 to install the pip requirements at
-> build time. If it reports "Couldn't find Python 3.12", put a real 3.12
-> interpreter first on `PATH` (a Windows Store stub is not sufficient).
+### Project layout
 
-## Installing (Xiaomi / MIUI / HyperOS note)
-
-MIUI blocks `adb install` by default (`INSTALL_FAILED_USER_RESTRICTED`). Either
-enable **Developer options → Install via USB**, or push the APK and tap-install it:
-
-```bash
-adb push app/build/outputs/apk/debug/app-debug.apk /sdcard/Download/
-# then open Files → Download → tap the APK
+```
+app/src/main/
+  python/ytmp3/            # Flask + Socket.IO backend + web UI
+    main.py                #   search / download / library / playlists / export-import
+    frontend/              #   index.html, script.js, styles.css
+  java/org/beeware/android/
+    MainActivity.java      # WebView host + JS bridge
+    MusicService.java      # foreground media service (MediaSession, notification)
 ```
 
-Always update in place (never uninstall) to keep your downloaded music — that only
-works when the new build is signed with the same debug keystore as the installed one.
+## License
+
+See [LICENSE](LICENSE).
