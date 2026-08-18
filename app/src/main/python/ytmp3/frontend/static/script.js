@@ -1381,6 +1381,26 @@ function renderAddToPlaylistOptions() {
     });
 }
 
+// Update just one song's tag chips in place (avoids re-fetching + re-rendering
+// the entire library after a playlist toggle).
+function updateRowTagsForPath(path) {
+    const tags = allPlaylists
+        .filter(p => (p.songs || []).some(s => (s.path || s) === path))
+        .map(p => ({ id: p.id, name: p.name }));
+
+    // Keep the master library data in sync for future full re-renders.
+    const song = originalLibrary.find(s => s.path === path);
+    if (song) song.playlists = tags;
+
+    const html = tags.map(t => `<span class="song-tag">${escapeHtml(t.name)}</span>`).join("");
+    document.querySelectorAll(".list-item").forEach(el => {
+        if (el.dataset && el.dataset.path === path) {
+            const box = el.querySelector(".song-tags");
+            if (box) box.innerHTML = html;
+        }
+    });
+}
+
 function toggleSongInPlaylist(id, currentlyIn) {
     const endpoint = currentlyIn ? "/playlists/remove" : "/playlists/add";
     fetch(endpoint, {
@@ -1397,7 +1417,7 @@ function toggleSongInPlaylist(id, currentlyIn) {
             }
         }
         renderAddToPlaylistOptions();
-        loadLibrary(); // refresh the tags on the library rows
+        updateRowTagsForPath(addTargetPath); // patch just this row's tags
     });
 }
 
@@ -1425,7 +1445,7 @@ function createPlaylistInline() {
     }).then(data => {
         if (data) allPlaylists = data.playlists || [];
         renderAddToPlaylistOptions();
-        loadLibrary();
+        if (addTargetPath) updateRowTagsForPath(addTargetPath);
     });
 }
 

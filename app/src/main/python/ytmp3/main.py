@@ -4,12 +4,13 @@ import os
 import re
 import time
 import json
-from flask import Flask, render_template, request, send_file, abort, Response
+from urllib.parse import quote
+from flask import Flask, render_template, request, send_file, abort, Response, redirect
 from flask_socketio import SocketIO
 from flask import Flask, request, jsonify  # Add 'jsonify' here
-import yt_dlp
-import base64
-import requests
+# NOTE: yt_dlp is a very heavy import (hundreds of extractors). It is imported
+# lazily inside search()/_download_url() so the backend starts — and the UI
+# appears — much faster; yt_dlp only loads on the first search/download.
 
 # ---------------- Storage ----------------
 DOWNLOAD_DIR = Path.home() / "ytmp3_downloads"
@@ -51,9 +52,18 @@ def _save_playlists(playlists):
     tmp.replace(PLAYLISTS_FILE)
 
 
-def _song_info_map():
-    """Map filename -> {title, thumbnail} for every song currently on disk."""
-    info = {}
+# ---------------- Library scan cache ----------------
+# Scanning the downloads dir (stat + sort of every file) happens on every
+# library/playlist request. Cache the result and invalidate it only when the
+# set of files actually changes (a download finishes or a song is removed).
+MEDIA_EXT = (".mp4", ".m4a", ".mp3")
+_songs_cache = None
+_songs_cache_lock = threading.Lock()
+
+
+def _scan_songs():
+    """List songs newest-first as {title, path, thumbnail}. Thumbnails point at
+    the local /thumb route (locally cached image, works offline)."""
     try:
         files = sorted(DOWNLOAD_DIR.iterdir(), key=os.path.getmtime, reverse=True)
     except Exception:
@@ -62,18 +72,36 @@ def _song_info_map():
         except Exception:
             files = []
 
+    songs = []
     for f in files:
-        if f.suffix not in (".mp4", ".m4a", ".mp3"):
+        if f.suffix not in MEDIA_EXT:
             continue
-        thumb = ""
-        thumb_path = Path(str(f) + ".thumb")
-        if thumb_path.exists():
-            try:
-                thumb = thumb_path.read_text(errors="ignore").strip()
-            except Exception:
-                thumb = ""
-        info[f.name] = {"title": f.stem, "thumbnail": thumb}
-    return info
+        songs.append({
+            "title": f.stem,
+            "path": f.name,
+            "thumbnail": "/thumb/" + quote(f.name, safe=""),
+        })
+    return songs
+
+
+def _get_songs():
+    global _songs_cache
+    with _songs_cache_lock:
+        if _songs_cache is None:
+            _songs_cache = _scan_songs()
+        return _songs_cache
+
+
+def _invalidate_songs():
+    global _songs_cache
+    with _songs_cache_lock:
+        _songs_cache = None
+
+
+def _song_info_map():
+    """Map filename -> {title, thumbnail} for every song currently on disk."""
+    return {s["path"]: {"title": s["title"], "thumbnail": s["thumbnail"]}
+            for s in _get_songs()}
 
 # ---------------- Flask Backend ----------------
 app = Flask(
@@ -96,6 +124,7 @@ def search():
         return jsonify({"error": "No query"}), 400
 
     try:
+        import yt_dlp  # lazy: keeps app startup fast
         ydl_opts = {
             "quiet": True,
             "skip_download": True,
@@ -156,9 +185,7 @@ def search():
 
 @app.route("/playlist")
 def playlist():
-    data = {"video": []}
-
-    # Build a map of filename -> [{id, name}] so each song can show its tags.
+    # Tags come fresh from the (small) playlists file; the song list is cached.
     with _playlists_lock:
         playlists = _load_playlists()
     tags_by_song = {}
@@ -167,32 +194,75 @@ def playlist():
         for song in p["songs"]:
             tags_by_song.setdefault(song, []).append(tag)
 
-    # List files and sort by creation time (newest first)
+    video = []
+    for s in _get_songs():
+        video.append({
+            "title": s["title"],
+            "path": s["path"],
+            "thumbnail": s["thumbnail"],
+            "playlists": tags_by_song.get(s["path"], []),
+        })
+
+    return jsonify({"video": video})
+
+
+# ---------------- Local thumbnail cache ----------------
+@app.route("/thumb/<path:name>")
+def thumb(name):
+    """Serve a locally-cached thumbnail image (works offline). If it isn't
+    cached yet, bounce to the remote URL from the .thumb sidecar — a background
+    task fills in the local copies so later loads are instant and offline."""
+    jpg = DOWNLOAD_DIR / (name + ".jpg")
+    if jpg.exists():
+        return send_file(jpg, mimetype="image/jpeg", conditional=True)
+
+    tp = Path(str(DOWNLOAD_DIR / name) + ".thumb")
+    if tp.exists():
+        try:
+            u = tp.read_text(errors="ignore").strip()
+            if u:
+                return redirect(u)
+        except Exception:
+            pass
+    abort(404)
+
+
+def _cache_thumb(media_filename, url):
+    """Download a thumbnail image next to its song as '<file>.jpg'. Non-fatal."""
+    if not url:
+        return
+    jpg = DOWNLOAD_DIR / (media_filename + ".jpg")
+    if jpg.exists():
+        return
     try:
-        files = sorted(DOWNLOAD_DIR.iterdir(), key=os.path.getmtime, reverse=True)
-    except:
-        files = DOWNLOAD_DIR.iterdir()
+        import urllib.request
+        data = urllib.request.urlopen(url, timeout=10).read()
+        if data:
+            jpg.write_bytes(data)
+    except Exception:
+        pass
 
+
+def _backfill_thumbs():
+    """Fetch local thumbnail copies for songs that only have a remote URL, so
+    the library renders instantly and works offline. Runs in a daemon thread."""
+    try:
+        files = list(DOWNLOAD_DIR.iterdir())
+    except Exception:
+        return
     for f in files:
-        # Check for multiple formats in case some are .m4a
-        if f.suffix in [".mp4", ".m4a", ".mp3"]:
-            thumb = ""
-            # Look for the thumbnail file we saved during download
-            thumb_path = f.with_suffix(f.suffix + ".thumb")
-            if thumb_path.exists():
-                try:
-                    thumb = thumb_path.read_text(errors="ignore")
-                except:
-                    thumb = ""
-
-            data["video"].append({
-                "title": f.stem, # Use .stem to show 'Song Name' instead of 'Song Name.mp4'
-                "path": f.name,  # The actual filename for the player
-                "thumbnail": thumb,
-                "playlists": tags_by_song.get(f.name, []),
-            })
-
-    return jsonify(data) # Use jsonify to ensure correct headers
+        if f.suffix not in MEDIA_EXT:
+            continue
+        if Path(str(f) + ".jpg").exists():
+            continue
+        tp = Path(str(f) + ".thumb")
+        if not tp.exists():
+            continue
+        try:
+            url = tp.read_text(errors="ignore").strip()
+        except Exception:
+            continue
+        _cache_thumb(f.name, url)
 
 
 @app.route("/download/<filename>")
@@ -222,16 +292,16 @@ def remove():
         return {"success": False}
 
     file_path = DOWNLOAD_DIR / path
-    # Sidecars are stored as "<full filename>.thumb" / "<full filename>.url"
-    thumb_path = Path(str(file_path) + ".thumb")
-    url_path = Path(str(file_path) + ".url")
+    # Sidecars: "<file>.thumb" (URL), "<file>.url" (source), "<file>.jpg" (image)
+    for sidecar in (".thumb", ".url", ".jpg"):
+        p = Path(str(file_path) + sidecar)
+        if p.exists():
+            p.unlink()
 
     if file_path.exists():
         file_path.unlink()
-    if thumb_path.exists():
-        thumb_path.unlink()
-    if url_path.exists():
-        url_path.unlink()
+
+    _invalidate_songs()  # the file set changed
 
     # Also drop the song from any playlists that referenced it.
     with _playlists_lock:
@@ -385,6 +455,8 @@ def _download_url(url, progress_cb=None):
                     Path(filename + ".thumb").write_text(thumb)
                 except Exception:
                     pass
+                # Cache the image locally too (offline + fast library render).
+                _cache_thumb(Path(filename).name, thumb)
 
             # Persist the source URL so the song can be exported/re-imported later.
             source_url = info.get("webpage_url") or url
@@ -393,6 +465,7 @@ def _download_url(url, progress_cb=None):
             except Exception:
                 pass
 
+    import yt_dlp  # lazy: keeps app startup fast
     ydl_opts = {
         # Prefer a single progressive MP4 (audio+video) when YouTube still
         # offers one, otherwise fall back to an audio-only m4a stream, which is
@@ -428,6 +501,7 @@ def _download_url(url, progress_cb=None):
     if not final_path.exists() or final_path.stat().st_size < 50_000:
         raise Exception("Download produced an invalid or empty file")
 
+    _invalidate_songs()  # a new file was added
     return final["name"]
 
 
@@ -649,11 +723,20 @@ def handle_import(data):
 
 # ---------------- Start Flask ----------------
 def start_backend():
-    # Recover URLs for any legacy songs (downloaded before URL-saving existed).
-    try:
-        _backfill_urls()
-    except Exception as e:
-        print(f"URL backfill skipped: {e}")
+    # Run one-time maintenance in the background so it never delays startup:
+    #   - recover source URLs for legacy songs (needed for export)
+    #   - cache thumbnail images locally (offline + instant library render)
+    def _maintenance():
+        try:
+            _backfill_urls()
+        except Exception as e:
+            print(f"URL backfill skipped: {e}")
+        try:
+            _backfill_thumbs()
+        except Exception as e:
+            print(f"Thumb backfill skipped: {e}")
+
+    threading.Thread(target=_maintenance, daemon=True).start()
 
     threading.Thread(
         target=lambda: socketio.run(
