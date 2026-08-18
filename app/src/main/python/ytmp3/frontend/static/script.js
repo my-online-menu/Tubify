@@ -73,7 +73,7 @@ function doSearch() {
             const safeTitle = v.title.replace(/'/g, "\\'");
             
             div.innerHTML = `
-               <img src="${v.thumbnail || '/static/video-placeholder.png'}"
+               <img loading="lazy" decoding="async" src="${v.thumbnail || '/static/video-placeholder.png'}"
      onerror="this.src='/static/video-placeholder.png';">
                 <div class="item-info">
                     <strong>${v.title}</strong><br>
@@ -316,12 +316,16 @@ function loadLibrary() {
 function renderLibrary(items) {
     const container = document.getElementById("videoList");
     if (!container) return;
-    
-    container.innerHTML = "";
-    
+
+    // Build in a fragment and insert once (fewer reflows for big libraries).
+    const frag = document.createDocumentFragment();
+
+    // Map path -> master index once, instead of findIndex per row (O(n) vs O(n^2)).
+    const indexByPath = {};
+    originalLibrary.forEach((item, i) => { indexByPath[item.path] = i; });
+
     items.forEach((v) => {
-        // Find index in the MASTER list
-        const masterIndex = originalLibrary.findIndex(item => item.path === v.path);
+        const masterIndex = indexByPath[v.path];
 
         const div = document.createElement("div");
         div.className = "list-item";
@@ -335,7 +339,7 @@ function renderLibrary(items) {
         // We only pass the INDEX to the functions.
         // This avoids all quote/syntax errors.
         div.innerHTML = `
-            <img src="${v.thumbnail || '/static/video-placeholder.png'}"
+            <img loading="lazy" decoding="async" src="${v.thumbnail || '/static/video-placeholder.png'}"
      onerror="this.src='/static/video-placeholder.png';">
             <div class="item-info" style="white-space:normal;">
                 <div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(v.title)}</div>
@@ -345,8 +349,11 @@ function renderLibrary(items) {
             <button class="icon-btn play-btn" onclick="playByIndex(${masterIndex})">▶</button>
             <button class="icon-btn del-btn" onclick="removeByIndex(${masterIndex})">✕</button>
         `;
-        container.appendChild(div);
+        frag.appendChild(div);
     });
+
+    container.innerHTML = "";
+    container.appendChild(frag);
 }
 // Mark the row of the currently-playing song (green border) wherever it appears.
 function updateNowPlayingHighlight() {
@@ -1174,7 +1181,7 @@ function renderPlaylists() {
         div.className = "playlist-card";
         div.onclick = () => openPlaylist(p.id);
         div.innerHTML = `
-            <img class="pl-cover" src="${cover}" onerror="this.src='/static/video-placeholder.png';">
+            <img class="pl-cover" loading="lazy" decoding="async" src="${cover}" onerror="this.src='/static/video-placeholder.png';">
             <div class="pl-meta">
                 <div class="pl-name">${escapeHtml(p.name)}</div>
                 <div class="pl-count">${p.count} song${p.count === 1 ? "" : "s"}</div>
@@ -1217,7 +1224,7 @@ function renderPlaylistSongs() {
         div.dataset.path = v.path;
         if (v.path && v.path === currentPlayingPath) div.classList.add("active");
         div.innerHTML = `
-            <img src="${v.thumbnail || '/static/video-placeholder.png'}"
+            <img loading="lazy" decoding="async" src="${v.thumbnail || '/static/video-placeholder.png'}"
                  onerror="this.src='/static/video-placeholder.png';">
             <span class="item-info">${escapeHtml(v.title)}</span>
             <button class="icon-btn play-btn" onclick="playPlaylistSong(${i})">▶</button>
