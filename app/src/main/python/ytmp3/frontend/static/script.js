@@ -5,6 +5,9 @@ const socket = io("http://127.0.0.1:8000");
 let playlist = [];
 let currentIndex = -1;
 let currentPlayingPath = ""; // stable id of the song currently playing (for the green border)
+let shuffle = false;       // shuffle-play toggle
+let shuffleBag = [];       // remaining shuffled indices for the current cycle
+let playHistory = [];      // indices actually played, so Prev works in shuffle
 let currentPlayer = null; // <audio> element for playback
 let currentFile = "";
 let currentThumb = "";
@@ -370,6 +373,7 @@ function updateNowPlayingHighlight() {
 function playByIndex(index) {
     // Playing from the Library: the play queue IS the library.
     playlist = [...originalLibrary];
+    resetShuffleState();
 
     const track = playlist[index];
     if (!track) return;
@@ -578,13 +582,56 @@ function closeMiniPlayer() {
 }
 
 // ================= PLAY NEXT TRACK =================
+// ================= SHUFFLE =================
+function buildShuffleBag(exclude) {
+    shuffleBag = [];
+    for (let i = 0; i < playlist.length; i++) if (i !== exclude) shuffleBag.push(i);
+    for (let i = shuffleBag.length - 1; i > 0; i--) {   // Fisher–Yates
+        const j = Math.floor(Math.random() * (i + 1));
+        const t = shuffleBag[i]; shuffleBag[i] = shuffleBag[j]; shuffleBag[j] = t;
+    }
+}
+
+// Next index: shuffled (each song once per cycle, no immediate repeat) or linear.
+function nextIndexAfter(idx) {
+    if (playlist.length <= 1) return 0;
+    if (shuffle) {
+        if (!shuffleBag.length) buildShuffleBag(idx);
+        return shuffleBag.length ? shuffleBag.pop() : (idx + 1) % playlist.length;
+    }
+    return (idx + 1) % playlist.length;
+}
+
+function resetShuffleState() {
+    shuffleBag = [];
+    playHistory = [];
+}
+
+function toggleShuffle() {
+    shuffle = !shuffle;
+    shuffleBag = [];
+    if (shuffle) buildShuffleBag(currentIndex);
+    syncShuffleButton();
+}
+
+function syncShuffleButton() {
+    const b = document.getElementById("shuffleBtn");
+    if (b) b.classList.toggle("active", shuffle);
+}
+
 window.playNextTrack = function(source) {
     console.log("Auto-playing next track. Triggered by:", source);
-    
+
     if (!playlist || playlist.length === 0) return;
 
-    // Calculate next index
-    currentIndex = (currentIndex + 1) % playlist.length;
+    // Remember where we were so Prev can retrace (esp. in shuffle).
+    if (currentIndex >= 0) {
+        playHistory.push(currentIndex);
+        if (playHistory.length > 300) playHistory.shift();
+    }
+
+    // Calculate next index (shuffle-aware)
+    currentIndex = nextIndexAfter(currentIndex);
     const track = playlist[currentIndex];
 
     if (track) {
@@ -620,7 +667,11 @@ window.playNextTrack = function(source) {
 function playPrevTrack() {
     if (!playlist.length) return;
 
-    currentIndex = (currentIndex - 1 + playlist.length) % playlist.length;
+    if (shuffle && playHistory.length) {
+        currentIndex = playHistory.pop();   // go back through what actually played
+    } else {
+        currentIndex = (currentIndex - 1 + playlist.length) % playlist.length;
+    }
     const track = playlist[currentIndex];
     if (!track) return;
 
@@ -665,6 +716,7 @@ function updateFullAudioPlayer() {
     fullInfo.textContent = track.title || "No file playing";
 
     syncFullPlayButton();
+    syncShuffleButton();
 }
 
 // ================= WEB TIMELINE SYNC =================
@@ -1246,6 +1298,7 @@ function playPlaylistSong(index) {
 
     // Playing from a playlist: the play queue IS this playlist.
     playlist = currentPlaylistSongs;
+    resetShuffleState();
 
     const track = playlist[index];
     if (!track) return;

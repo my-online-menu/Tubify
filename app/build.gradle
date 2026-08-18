@@ -15,8 +15,8 @@ testOptions {
 
     defaultConfig {
         applicationId "com.selvi.ytmp3.ytmp3"
-        versionCode 1000004
-        versionName "1.0.4"
+        versionCode 1000005
+        versionName "1.0.5"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
         // Briefcase currently requires API Level 24 for the `pidof` command, and the `--pid`
